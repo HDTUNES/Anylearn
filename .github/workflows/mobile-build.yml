@@ -329,12 +329,17 @@ jobs:
           mkdir -p external
           git clone --depth 1 https://github.com/ggml-org/llama.cpp external/llama.cpp
           cp external/llama.cpp/examples/llama.android/lib/src/main/cpp/ai_chat.cpp llamaLib/src/main/cpp/ai_chat.cpp
+          # Wider-phone compatibility: smaller context means much less KV-cache RAM.
+          sed -i 's/constexpr int DEFAULT_CONTEXT_SIZE = 8192;/constexpr int DEFAULT_CONTEXT_SIZE = 2048;/' llamaLib/src/main/cpp/ai_chat.cpp
           cp external/llama.cpp/examples/llama.android/lib/src/main/cpp/logging.h llamaLib/src/main/cpp/logging.h
           # Fix: __android_log_is_loggable requires Android API 30, but this app supports API 26+.
           # For this prototype we keep logging simple and always allow logs at/above the header level.
           sed -i 's/return __android_log_is_loggable(prio, LOG_TAG, LOG_MIN_LEVEL);/return prio >= LOG_MIN_LEVEL;/' llamaLib/src/main/cpp/logging.h
           mkdir -p llamaLib/src/main/java
           cp -R external/llama.cpp/examples/llama.android/lib/src/main/java/* llamaLib/src/main/java/
+          # The upstream wrapper calls every native load failure UnsupportedArchitectureException.
+          # Make the app show the real likely causes instead of a misleading short message.
+          sed -i 's/if (it != 0) throw UnsupportedArchitectureException()/if (it != 0) throw IOException("Model load failed. Try a smaller Q4 or Q3 GGUF. Possible causes: unsupported architecture, corrupt or split GGUF, or not enough RAM.")/' llamaLib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -414,8 +419,8 @@ jobs:
                           arguments += "-DLLAMA_BUILD_COMMON=ON"
                           arguments += "-DLLAMA_OPENSSL=OFF"
                           arguments += "-DGGML_NATIVE=OFF"
-                          arguments += "-DGGML_BACKEND_DL=ON"
-                          arguments += "-DGGML_CPU_ALL_VARIANTS=ON"
+                          arguments += "-DGGML_BACKEND_DL=OFF"
+                          arguments += "-DGGML_CPU_ALL_VARIANTS=OFF"
                           arguments += "-DGGML_LLAMAFILE=OFF"
                       }
                   }
@@ -466,8 +471,8 @@ jobs:
               message(STATUS "Detected Android ABI: ${ANDROID_ABI}")
               if(ANDROID_ABI STREQUAL "arm64-v8a")
                   set(GGML_SYSTEM_ARCH "ARM")
-                  set(GGML_CPU_KLEIDIAI ON)
-                  set(GGML_OPENMP ON)
+                  set(GGML_CPU_KLEIDIAI OFF)
+                  set(GGML_OPENMP OFF)
               else()
                   message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}")
               endif()
@@ -499,11 +504,16 @@ jobs:
             git clone --depth 1 https://github.com/ggml-org/llama.cpp external/llama.cpp
           fi
           cp external/llama.cpp/examples/llama.android/lib/src/main/cpp/ai_chat.cpp llamaLib/src/main/cpp/ai_chat.cpp
+          # Wider-phone compatibility: smaller context means much less KV-cache RAM.
+          sed -i 's/constexpr int DEFAULT_CONTEXT_SIZE = 8192;/constexpr int DEFAULT_CONTEXT_SIZE = 2048;/' llamaLib/src/main/cpp/ai_chat.cpp
           cp external/llama.cpp/examples/llama.android/lib/src/main/cpp/logging.h llamaLib/src/main/cpp/logging.h
           # Fix: __android_log_is_loggable requires Android API 30, but this app supports API 26+.
           # For this prototype we keep logging simple and always allow logs at/above the header level.
           sed -i 's/return __android_log_is_loggable(prio, LOG_TAG, LOG_MIN_LEVEL);/return prio >= LOG_MIN_LEVEL;/' llamaLib/src/main/cpp/logging.h
           cp -R external/llama.cpp/examples/llama.android/lib/src/main/java/* llamaLib/src/main/java/
+          # The upstream wrapper calls every native load failure UnsupportedArchitectureException.
+          # Make the app show the real likely causes instead of a misleading short message.
+          sed -i 's/if (it != 0) throw UnsupportedArchitectureException()/if (it != 0) throw IOException("Model load failed. Try a smaller Q4 or Q3 GGUF. Possible causes: unsupported architecture, corrupt or split GGUF, or not enough RAM.")/' llamaLib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt
 
           echo "VERIFY llamaLib files:"
           ls -la llamaLib
