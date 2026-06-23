@@ -43,26 +43,51 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
+
           p = Path('llamaLib/src/main/cpp/ai_chat.cpp')
           s = p.read_text()
+
+          # Upstream llama.cpp changes formatting sometimes, so patch constants line-by-line.
+          s = re.sub(r'^\s*constexpr\s+int\s+N_THREADS_MIN\s*=\s*[^;]+;\s*\n', '', s, flags=re.M)
+          s = re.sub(r'^\s*constexpr\s+int\s+N_THREADS_MAX\s*=\s*[^;]+;\s*\n', '', s, flags=re.M)
+          s = re.sub(r'^\s*constexpr\s+int\s+N_THREADS_HEADROOM\s*=\s*[^;]+;\s*\n', '', s, flags=re.M)
+
+          # Convert fixed compile-time constants into runtime-tunable globals.
+          s = re.sub(r'^\s*constexpr\s+int\s+DEFAULT_CONTEXT_SIZE\s*=\s*[^;]+;', 'static int g_context_size = 2048;', s, flags=re.M)
+          s = re.sub(r'^\s*constexpr\s+int\s+BATCH_SIZE\s*=\s*[^;]+;', 'static int g_batch_size = 256;', s, flags=re.M)
+          s = re.sub(r'^\s*constexpr\s+float\s+DEFAULT_SAMPLER_TEMP\s*=\s*[^;]+;', 'static float g_sampler_temp = 0.25f;', s, flags=re.M)
+
+          # If a previous text replacement already renamed the constants, repair those too.
+          s = re.sub(r'^\s*constexpr\s+int\s+g_context_size\s*=\s*[^;]+;', 'static int g_context_size = 2048;', s, flags=re.M)
+          s = re.sub(r'^\s*constexpr\s+int\s+g_batch_size\s*=\s*[^;]+;', 'static int g_batch_size = 256;', s, flags=re.M)
+          s = re.sub(r'^\s*constexpr\s+float\s+g_sampler_temp\s*=\s*[^;]+;', 'static float g_sampler_temp = 0.25f;', s, flags=re.M)
+
+          # Add runtime thread global near other tuning globals if missing.
+          if 'static int g_n_threads' not in s:
+              marker = 'static int g_context_size = 2048;'
+              if marker in s:
+                  s = s.replace(marker, 'static int g_n_threads = 4;\n' + marker, 1)
+              else:
+                  s = 'static int g_n_threads = 4;\nstatic int g_context_size = 2048;\nstatic int g_batch_size = 256;\nstatic float g_sampler_temp = 0.25f;\n' + s
+
+          # Replace original automatic thread calculation with our runtime setting.
           s = re.sub(
-              r'constexpr int N_THREADS_MIN = 2;\s*constexpr int N_THREADS_MAX = 4;\s*constexpr int N_THREADS_HEADROOM = 2;\s*constexpr int DEFAULT_CONTEXT_SIZE = 8192;\s*constexpr int OVERFLOW_HEADROOM = 4;\s*constexpr int BATCH_SIZE = 512;\s*constexpr float DEFAULT_SAMPLER_TEMP = 0\.3f;',
-              'static int g_n_threads = 4;\nstatic int g_context_size = 2048;\nconstexpr int OVERFLOW_HEADROOM = 4;\nstatic int g_batch_size = 256;\nstatic float g_sampler_temp = 0.25f;',
-              s,
-              flags=re.S
-          )
-          s = re.sub(
-              r'const int n_threads = std::max\(N_THREADS_MIN,\s*std::min\(N_THREADS_MAX,\s*\(int\) sysconf\(_SC_NPROCESSORS_ONLN\) -\s*N_THREADS_HEADROOM\)\);',
+              r'const\s+int\s+n_threads\s*=\s*std::max\([^;]+?N_THREADS_HEADROOM\s*\)\s*\)\s*;',
               'const int n_threads = g_n_threads;',
               s,
               flags=re.S
           )
+
+          # Replace usages of old constant names with runtime globals.
           s = s.replace('DEFAULT_CONTEXT_SIZE', 'g_context_size')
           s = s.replace('BATCH_SIZE', 'g_batch_size')
           s = s.replace('DEFAULT_SAMPLER_TEMP', 'g_sampler_temp')
-          s += r'''
-          
-          extern "C"
+
+          # Add JNI method called by Kotlin NativeTuning.
+          if 'Java_com_arena_aiuibuilder_NativeTuning_setOptions' not in s:
+              s += """
+
+          extern \"C\"
           JNIEXPORT void JNICALL
           Java_com_arena_aiuibuilder_NativeTuning_setOptions(JNIEnv *, jclass, jint threads, jint contextSize, jint batchSize, jfloat temperature) {
               int t = (int) threads;
@@ -82,9 +107,15 @@ jobs:
               g_batch_size = b;
               g_sampler_temp = temp;
           }
-          '''
+          """
+
+          required = ['static int g_n_threads', 'static int g_context_size', 'static int g_batch_size', 'static float g_sampler_temp', 'NativeTuning_setOptions']
+          missing = [x for x in required if x not in s]
+          if missing:
+              raise RuntimeError('ai_chat.cpp tuning patch failed, missing: ' + ', '.join(missing))
+
           p.write_text(s)
-          print('Patched ai_chat.cpp. Tuning JNI present:', 'NativeTuning_setOptions' in s)
+          print('Patched ai_chat.cpp tuning successfully')
           PY
 
       - name: Set up Java 17
