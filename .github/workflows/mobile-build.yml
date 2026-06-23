@@ -61,28 +61,28 @@ jobs:
           s = s.replace('BATCH_SIZE', 'g_batch_size')
           s = s.replace('DEFAULT_SAMPLER_TEMP', 'g_sampler_temp')
           s += r'''
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_arena_aiuibuilder_NativeTuning_setOptions(JNIEnv *, jclass, jint threads, jint contextSize, jint batchSize, jfloat temperature) {
-    int t = (int) threads;
-    int c = (int) contextSize;
-    int b = (int) batchSize;
-    float temp = (float) temperature;
-    if (t < 1) t = 1;
-    if (t > 8) t = 8;
-    if (c < 512) c = 512;
-    if (c > 8192) c = 8192;
-    if (b < 64) b = 64;
-    if (b > 1024) b = 1024;
-    if (temp < 0.01f) temp = 0.01f;
-    if (temp > 2.0f) temp = 2.0f;
-    g_n_threads = t;
-    g_context_size = c;
-    g_batch_size = b;
-    g_sampler_temp = temp;
-}
-'''
+          
+          extern "C"
+          JNIEXPORT void JNICALL
+          Java_com_arena_aiuibuilder_NativeTuning_setOptions(JNIEnv *, jclass, jint threads, jint contextSize, jint batchSize, jfloat temperature) {
+              int t = (int) threads;
+              int c = (int) contextSize;
+              int b = (int) batchSize;
+              float temp = (float) temperature;
+              if (t < 1) t = 1;
+              if (t > 8) t = 8;
+              if (c < 512) c = 512;
+              if (c > 8192) c = 8192;
+              if (b < 64) b = 64;
+              if (b > 1024) b = 1024;
+              if (temp < 0.01f) temp = 0.01f;
+              if (temp > 2.0f) temp = 2.0f;
+              g_n_threads = t;
+              g_context_size = c;
+              g_batch_size = b;
+              g_sampler_temp = temp;
+          }
+          '''
           p.write_text(s)
           print('Patched ai_chat.cpp. Tuning JNI present:', 'NativeTuning_setOptions' in s)
           PY
